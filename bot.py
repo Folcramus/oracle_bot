@@ -7,23 +7,47 @@ from config import BOT_TOKEN, PROVIDER_TOKEN
 from catalog import catalog
 from loguru import logger
 import asyncio
-
+from database import init_db, async_session
+from models import User
+from sqlalchemy import select
 bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
 
 
 @dp.message(F.text.lower() == "/start")
 async def start(message: Message):
-    kb = InlineKeyboardBuilder()
-    for product_id, item in catalog.items():
-        kb.add(
-            InlineKeyboardButton(
-                text=f"{item['title']} — {item['price']}⭐",
-                callback_data=f"{product_id}",
-                pay=True
-            )
-        )
-    await message.answer("Добро пожаловать в наш магазин! Выберите товар:", reply_markup=kb.as_markup())
+        user = message.from_user
+        phone = user.phone_number if hasattr(user,
+                                             "phone_number") else "неизвестен"  # ← этот атрибут обычно отсутствует
+
+        async with async_session() as session:
+            stmt = select(User).where(User.tg_id == user.id)
+            result = await session.execute(stmt)
+            existing_user = result.scalar_one_or_none()
+
+            if existing_user:
+                await message.answer("🔹 Ты уже зарегистрирован.")
+            else:
+                new_user = User(
+                    tg_id=user.id,
+                    phone=phone,
+                    username=user.username,
+                    full_name=user.full_name
+                )
+                session.add(new_user)
+                await session.commit()
+                await message.answer(f"✅ Привет, {user.full_name}!\nТы зарегистрирован.")
+
+            kb = InlineKeyboardBuilder()
+            for product_id, item in catalog.items():
+                kb.add(
+                    InlineKeyboardButton(
+                        text=f"{item['title']} — {item['price']}⭐",
+                        callback_data=f"{product_id}",
+                        pay=True
+                    )
+                )
+        await message.answer("Добро пожаловать в наш магазин! Выберите товар:", reply_markup=kb.as_markup())
 
 @dp.callback_query(F.data.startswith("product_"))
 async def process_buy(callback_query):
