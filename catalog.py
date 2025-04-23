@@ -10,4 +10,9 @@ catalog = {
         "description": "12 уникальных стикеров",
         "price": 150,
     },
+    "product_3": {
+        "title": "Целое нихуя",
+        "description": "Нихуя за нихуя",
+        "price": 0,
+    },
 }
