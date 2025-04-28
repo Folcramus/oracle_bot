@@ -3,20 +3,14 @@ from aiogram.exceptions import TelegramAPIError
 from aiogram.types import Message, InlineKeyboardButton, KeyboardButton, InlineKeyboardMarkup, PreCheckoutQuery, LabeledPrice, ReplyKeyboardMarkup
 from aiogram.enums import ParseMode, ContentType
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-from config import BOT_TOKEN, PROVIDER_TOKEN
 from catalog import catalog
 from loguru import logger
 import asyncio
 from database import init_db, async_session
 from models import User
 from sqlalchemy import select
-
 import bitrix24
-
-bot = Bot(token=BOT_TOKEN)
 dp = Dispatcher()
-
-
 @dp.message(F.text.lower() == "/start")
 async def start(message: Message):
         user = message.from_user
@@ -70,20 +64,15 @@ async def process_buy(callback_query):
             chat_id=callback_query.from_user.id,
             title=item["title"],
             description=item["description"],
-            payload=f"order_{product_id}_item_{item['price']}",
-            provider_token=PROVIDER_TOKEN,  # Обязательно укажите ваш токен провайдера
             currency="XTR",  # Валюта Stars
             prices=[
                 LabeledPrice(
                     label=item["title"],
-                    amount= item["price"]  # Конвертируем Stars в минимальные единицы
                 )
             ],
             need_name=True,
             need_email=False,
             is_flexible=False,
-            max_tip_amount=10,  # Максимальная сумма чаевых (10 Stars)
-            suggested_tip_amounts=[1, 2, 3, 4]  # Варианты чаевых (1-4 Stars)
         )
         await callback_query.answer()
     except TelegramAPIError as e:
@@ -99,9 +88,6 @@ async def pre_checkout_query(pre_checkout_q: PreCheckoutQuery):
 @dp.message(F.successful_payment)
 async def successful_payment(message: Message):
     await message.answer("✅ Оплата прошла успешно! Спасибо за покупку.")
-    
 
 
-if __name__ == "__main__":
-    #dp.callback_query(process_buy)
-    asyncio.run(dp.start_polling(bot))
+

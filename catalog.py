@@ -13,6 +13,5 @@ catalog = {
     "product_3": {
         "title": "Целое нихуя",
         "description": "Нихуя за нихуя",
-        "price": 0,
     },
 }
