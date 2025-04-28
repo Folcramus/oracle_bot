@@ -14,7 +14,7 @@ from sqlalchemy import select
 from aiohttp import web
 import bitrix24
 from pyngrok import ngrok
-bot = Bot(token='8159987482:AAE_9BNu9Wa7N-KoYtK2fZroQySDc5a-JRY')
+bot = Bot(token='')
 dp = Dispatcher()
 import ssl
 ssl_context = ssl.create_default_context()
