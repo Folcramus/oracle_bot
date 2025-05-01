@@ -12,3 +12,4 @@ class User(Base):
     phone: Mapped[str] = mapped_column(String, nullable=True)
     username: Mapped[str] = mapped_column(String, nullable=True)
     full_name: Mapped[str] = mapped_column(String)
+

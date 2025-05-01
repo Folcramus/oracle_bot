@@ -13,44 +13,73 @@ from models import User
 from sqlalchemy import select
 from aiohttp import web
 import bitrix24
+from aiogram.fsm.context import FSMContext
+
+
 from pyngrok import ngrok
-bot = Bot(token='8159987482:AAE_9BNu9Wa7N-KoYtK2fZroQySDc5a-JRY')
+
+from state import RegisterState, router
+
+bot = Bot(token='')
 dp = Dispatcher()
 
+
+
 @dp.message(F.text.lower() == "/start")
-async def start(message: Message):
-        user = message.from_user
-        phone = user.phone_number if hasattr(user, "phone_number") else "неизвестен"
+async def start(message: Message, state: FSMContext):
+    user = message.from_user
 
-        async with async_session() as session:
-            stmt = select(User).where(User.tg_id == user.id)
-            result = await session.execute(stmt)
-            existing_user = result.scalar_one_or_none()
-            if existing_user:
-                await message.answer(f"🔹 С возвращением, {user.full_name}!")
-            else:
-                new_user = User(
-                    tg_id=user.id,
-                    phone=phone,
-                    username=user.username,
-                    full_name=user.full_name
-                )
-                session.add(new_user)
+    async with async_session() as session:
+        stmt = select(User).where(User.tg_id == user.id)
+        result = await session.execute(stmt)
+        existing_user = result.scalar_one_or_none()
+        if existing_user:
+            await message.answer(f"🔹 С возвращением, {user.full_name}!")
+            await show_catalog(message)
+        else:
+            # Запрос номера телефона
+            kb = ReplyKeyboardMarkup(
+                keyboard=[[
+                    KeyboardButton(text="📱 Отправить номер", request_contact=True)
+                ]],
+                resize_keyboard=True,
+                one_time_keyboard=True
+            )
+            await message.answer("Пожалуйста, отправь свой номер телефона:", reply_markup=kb)
+            await state.set_state(RegisterState.waiting_for_phone)
 
-                await bitrix24.add_contact_to_bitrix(message.from_user)
+@dp.message(RegisterState.waiting_for_phone, F.contact)
+async def handle_phone(message: Message, state: FSMContext):
+    contact = message.contact
+    user = message.from_user
 
-                await session.commit()
-                await message.answer(f"✅ Привет, {user.full_name}!\nТы зарегистрирован.")
+    async with async_session() as session:
+        new_user = User(
+            tg_id=user.id,
+            phone=contact.phone_number,
+            username=user.username,
+            full_name=user.full_name
+        )
+        session.add(new_user)
+        print(user)
+        await bitrix24.add_contact_to_bitrix(user, contact)
+        await session.commit()
 
-            kb = InlineKeyboardBuilder()
-            for product_id, item in catalog.items():
-                button = InlineKeyboardButton(
-                    text=f"{item['title']} — {item['price']}⭐",
-                    callback_data=f"{product_id}",
-                    pay=True
-                )
-                kb.row(button)
-        await message.answer("Добро пожаловать в наш магазин! Выберите товар:", reply_markup=kb.as_markup())
+    await message.answer(f"✅ Привет, {user.full_name}!\nТы зарегистрирован.")
+    await show_catalog(message)
+    await state.clear()
+
+async def show_catalog(message: Message):
+    kb = InlineKeyboardBuilder()
+    for product_id, item in catalog.items():
+        button = InlineKeyboardButton(
+            text=f"{item['title']} — {item['price']}⭐",
+            callback_data=f"{product_id}",
+            pay=True
+        )
+        kb.row(button)
+    await message.answer("Добро пожаловать в наш магазин! Выберите товар:", reply_markup=kb.as_markup())
+
 
 @dp.callback_query(F.data.startswith("product_"))
 async def process_buy(callback_query):

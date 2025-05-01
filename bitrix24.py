@@ -11,8 +11,8 @@ BITRIX_WEBHOOK_BASE = 'https://b24-mwcobf.bitrix24.ru/rest/1/7ili29rp79a2sq66/'
 BITRIX_WEBHOOK = "https://b24-mwcobf.bitrix24.ru/rest/12/9mv0ulk31p44kbxv/"  # Вебхук из Bitrix24
 bot = Bot(token='8159987482:AAE_9BNu9Wa7N-KoYtK2fZroQySDc5a-JRY')
 
-
-async def add_contact_to_bitrix(user):
+#входящий вебхук для создания контактов
+async def add_contact_to_bitrix(user, contact):
     contact_data = {
         "fields": {
             "NAME": user.first_name,
@@ -21,10 +21,11 @@ async def add_contact_to_bitrix(user):
             "OPENED": "Y",
             "TYPE_ID": "CLIENT",  # Тип контакта
             "SOURCE_ID": "SELF",  # Источник
-            "COMMENTS": f"Telegram username: @{user.username}\nTelegram ID: {user.id}",
             "PHONE": [
-                {"VALUE": "неизвестен", "VALUE_TYPE": "WORK"}
-            ]
+                {"VALUE": str(contact.phone_number), "VALUE_TYPE": "WORK"}
+            ],
+            "UF_CRM_1746084153598": user.id,
+            "UF_CRM_1746084215487": user.username,
         }
     }
 
