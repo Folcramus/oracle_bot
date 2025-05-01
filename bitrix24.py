@@ -29,6 +29,45 @@ BITRIX_PRODUCT_ADD_WEBHOOK = 'https://b24-mwcobf.bitrix24.ru/rest/1/tgo0yqf0ypvc
 bot = Bot(token=os.getenv("TOKEN"))
 
 
+
+
+# Функция для поиска сделок по tg_id
+async def find_deals_by_tg_id(tg_id: str):
+    try:
+        result = await call(
+            'crm.deal.list',
+            'https://b24-mwcobf.bitrix24.ru/rest/1/oou0i0wx1ml7kfdg',
+            {'filter': {'UF_CRM_1746104614683': tg_id}, 'select': ['ID', 'TITLE', 'STAGE_ID']}
+        )
+
+        deals = result.get('result', [])
+        if not deals:
+            logger.info(f"Нет сделок для tg_id: {tg_id}")
+            return None
+
+        logger.info(f"Найдено {len(deals)} сделок для tg_id: {tg_id}")
+        return deals
+
+    except Exception as e:
+        logger.error(f"❌ Ошибка при поиске сделок по tg_id {tg_id}: {e}")
+        return None
+
+# Обработка команды для просмотра сделок по tg_id
+async def show_user_deals(tg_id: str):
+    deals = await find_deals_by_tg_id(tg_id)
+    if not deals:
+        return "❌ У вас нет заказов в "
+
+    message = "Ваши заказы:\n"
+    for deal in deals:
+        deal_id = deal['ID']
+        deal_title = deal['TITLE']
+        stage_id = deal['STAGE_ID']
+        message += f"• Заказ #{deal_id} - {deal_title} (Стадия: {stage_id})\n"
+
+    return message
+
+
 # Поиск товара в локальном каталоге
 def find_item(category_id, item_id):
     category = catalog.get(category_id)

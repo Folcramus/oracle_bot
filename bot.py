@@ -35,7 +35,10 @@ async def show_main_menu(message: Message, cart_items_count: int = 0):
         text=f"🛒 Корзина ({cart_items_count})",
         callback_data="go_to_cart"
     ))
-
+    kb.row(InlineKeyboardButton(
+        text=f"История заказов ",
+        callback_data="go_to_orders_history"
+    ))
     kb.adjust(1)
     await message.answer(
         "🏠 Главное меню. Выберите категорию:",
@@ -383,6 +386,19 @@ async def process_address(message: Message, state: FSMContext):
     await state.update_data(cart={})
     await state.clear()
 
+#История заказов
+@dp.callback_query(F.data == "go_to_orders_history")
+async def go_to_orders_history(callback: CallbackQuery):
+    tg_id = callback.from_user.id
+
+    # Получаем сделки через API Bitrix24
+    deals = await bitrix24.show_user_deals(tg_id)
+
+    if deals:
+
+        await callback.message.answer(deals)
+    else:
+        await callback.message.answer("🔹 У вас нет сделок.")
 
 
 @dp.callback_query(F.data == "cancel_payment")
