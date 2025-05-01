@@ -1,9 +1,6 @@
-from aiogram import F, Router
-from aiogram.types import Message, ReplyKeyboardMarkup, KeyboardButton, InlineKeyboardButton
-
+from aiogram import  Router
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from sqlalchemy import select
+
 
 router = Router()
 #SFM состояния для корзины, воронки регистрации, и оплаты заказа

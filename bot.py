@@ -96,7 +96,7 @@ async def handle_phone(message: Message, state: FSMContext):
 
 # Показ товаров в категории
 @dp.callback_query(F.data.startswith("category_"))
-async def show_category_items(callback: CallbackQuery, state: FSMContext):
+async def show_category_items(callback: CallbackQuery):
     category_id = callback.data.split("_")[1]
     category = catalog.get(category_id)
 
@@ -130,7 +130,7 @@ async def show_category_items(callback: CallbackQuery, state: FSMContext):
 
 # Просмотр информации о товаре
 @dp.callback_query(F.data.startswith("product_"))
-async def show_product(callback: CallbackQuery, state: FSMContext):
+async def show_product(callback: CallbackQuery):
     parts = callback.data.split("_")
     if len(parts) != 3:
         await callback.answer("Ошибка запроса")
@@ -392,7 +392,7 @@ async def go_to_orders_history(callback: CallbackQuery):
     tg_id = callback.from_user.id
 
     # Получаем сделки через API Bitrix24
-    deals = await bitrix24.show_user_deals(tg_id)
+    deals = await bitrix24.show_user_deals(str(tg_id))
 
     if deals:
 
