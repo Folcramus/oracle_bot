@@ -5,8 +5,6 @@ from aiogram.types import Message, InlineKeyboardButton, KeyboardButton, InlineK
     LabeledPrice, ReplyKeyboardMarkup, CallbackQuery
 from aiogram.enums import ParseMode, ContentType
 from aiogram.utils.keyboard import InlineKeyboardBuilder
-# from config import BOT_TOKEN
-from catalog import catalog
 from loguru import logger
 import asyncio
 from database import init_db, async_session
@@ -16,20 +14,44 @@ from aiohttp import web
 import bitrix24
 from aiogram.fsm.context import FSMContext
 from aiogram.types import LabeledPrice
-import uuid  # Для генерации уникального payload
-
-from pyngrok import ngrok
-
-from state import RegisterState, router, CartState, OrderState
+import uuid
 import os
 from dotenv import load_dotenv
+from catalog import catalog
+from state import OrderState, RegisterState
 
 load_dotenv()
 bot = Bot(token=os.getenv("TOKEN"))
 dp = Dispatcher()
 
 
-#Старт и регистрация пользователя
+
+
+# Главное меню с кнопкой корзины
+async def show_main_menu(message: Message, cart_items_count: int = 0):
+    kb = InlineKeyboardBuilder()
+
+    # Кнопки категорий
+    for category_id, category_data in catalog.items():
+        kb.add(InlineKeyboardButton(
+            text=category_data["name"],
+            callback_data=f"category_{category_id}"
+        ))
+
+    # Кнопка корзины с количеством товаров
+    kb.row(InlineKeyboardButton(
+        text=f"🛒 Корзина ({cart_items_count})",
+        callback_data="go_to_cart"
+    ))
+
+    kb.adjust(1)
+    await message.answer(
+        "🏠 Главное меню. Выберите категорию:",
+        reply_markup=kb.as_markup()
+    )
+
+
+# Старт и регистрация пользователя
 @dp.message(F.text.lower() == "/start")
 async def start(message: Message, state: FSMContext):
     user = message.from_user
@@ -40,9 +62,10 @@ async def start(message: Message, state: FSMContext):
         existing_user = result.scalar_one_or_none()
         if existing_user:
             await message.answer(f"🔹 С возвращением, {user.full_name}!")
-            await show_catalog(message, state)
+            # Показываем главное меню с количеством товаров в корзине
+            cart = (await state.get_data()).get("cart", {})
+            await show_main_menu(message, len(cart))
         else:
-            # Запрос номера телефона
             kb = ReplyKeyboardMarkup(
                 keyboard=[[
                     KeyboardButton(text="📱 Отправить номер", request_contact=True)
@@ -52,6 +75,7 @@ async def start(message: Message, state: FSMContext):
             )
             await message.answer("Пожалуйста, отправь свой номер телефона:", reply_markup=kb)
             await state.set_state(RegisterState.waiting_for_phone)
+
 
 @dp.message(RegisterState.waiting_for_phone, F.contact)
 async def handle_phone(message: Message, state: FSMContext):
@@ -71,126 +95,216 @@ async def handle_phone(message: Message, state: FSMContext):
         await session.commit()
 
     await message.answer(f"✅ Привет, {user.full_name}!\nТы зарегистрирован.")
-    await show_catalog(message)
+    await show_main_menu(message)
     await state.clear()
 
-#Показ каталога
-async def show_catalog(message: Message, state: FSMContext):
-    await state.set_state(CartState.managing_cart)
+
+# Показ товаров в категории
+@dp.callback_query(F.data.startswith("category_"))
+async def show_category_items(callback: CallbackQuery, state: FSMContext):
+    category_id = callback.data.split("_")[1]
+    category = catalog.get(category_id)
+
+    if not category:
+        await callback.answer("Категория не найдена")
+        return
 
     kb = InlineKeyboardBuilder()
-    for product_id, item in catalog.items():
-        kb.row(
-            InlineKeyboardButton(
-                text=f"➕ {item['title']} — {item['price']}⭐",
-                callback_data=f"add_{product_id}"
-            )
-        )
-    kb.row(
-        InlineKeyboardButton(text="🛒 Перейти в корзину", callback_data="go_to_cart")
+    for product_id, product in category["items"].items():
+        kb.add(InlineKeyboardButton(
+            text=f"{product['title']} — {product['price']}⭐",
+            callback_data=f"product_{category_id}_{product_id}"
+        ))
+
+    # Кнопки навигации
+    kb.row(InlineKeyboardButton(
+        text="🔙 Назад",
+        callback_data="back_to_main_menu"
+    ))
+    kb.row(InlineKeyboardButton(
+        text="🛒 Корзина",
+        callback_data="go_to_cart"
+    ))
+
+    await callback.message.edit_text(
+        f"Товары в категории {category['name']}:",
+        reply_markup=kb.as_markup()
     )
-    await message.answer("Выберите товар для добавления в корзину:", reply_markup=kb.as_markup())
+    await callback.answer()
 
 
-#Добавление товара в корзину
+# Просмотр информации о товаре
+@dp.callback_query(F.data.startswith("product_"))
+async def show_product(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    if len(parts) != 3:
+        await callback.answer("Ошибка запроса")
+        return
+
+    category_id = parts[1]
+    product_id = parts[2]
+
+    category = catalog.get(category_id)
+    if not category:
+        await callback.answer("Категория не найдена")
+        return
+
+    product = category["items"].get(product_id)
+    if not product:
+        await callback.answer("Товар не найден")
+        return
+
+    kb = InlineKeyboardBuilder()
+    kb.add(InlineKeyboardButton(
+        text="➕ Добавить в корзину",
+        callback_data=f"add_{category_id}_{product_id}"
+    ))
+    kb.row(InlineKeyboardButton(
+        text="🔙 Назад к товарам",
+        callback_data=f"category_{category_id}"
+    ))
+    kb.row(InlineKeyboardButton(
+        text="🛒 Корзина",
+        callback_data="go_to_cart"
+    ))
+
+    await callback.message.edit_text(
+        f"<b>{product['title']}</b>\n\n"
+        f"<i>{product['description']}</i>\n\n"
+        f"Цена: {product['price']}⭐",
+        parse_mode="HTML",
+        reply_markup=kb.as_markup()
+    )
+    await callback.answer()
+
+
+# Добавление товара в корзину
 @dp.callback_query(F.data.startswith("add_"))
-async def add_to_cart(callback_query: CallbackQuery, state: FSMContext):
-    product_id = callback_query.data.split("_", 1)[1]
-    cart = (await state.get_data()).get("cart", {})
+async def add_to_cart(callback: CallbackQuery, state: FSMContext):
+    parts = callback.data.split("_")
+    if len(parts) != 3:
+        await callback.answer("Ошибка запроса")
+        return
 
-    cart[product_id] = cart.get(product_id, 0) + 1
+    category_id = parts[1]
+    product_id = parts[2]
+
+    category = catalog.get(category_id)
+    if not category:
+        await callback.answer("Категория не найдена")
+        return
+
+    product = category["items"].get(product_id)
+    if not product:
+        await callback.answer("Товар не найден")
+        return
+
+    cart = (await state.get_data()).get("cart", {})
+    cart_key = f"{category_id}_{product_id}"
+    cart[cart_key] = cart.get(cart_key, 0) + 1
     await state.update_data(cart=cart)
 
-    item = catalog[product_id]
-    await callback_query.answer(f"{item['title']} — добавлен в корзину!")
+    # Обновляем счетчик в главном меню
+    await callback.answer(f"{product['title']} добавлен в корзину!")
 
 
-#Обратно в корзину
+
+# Возврат в главное меню
+@dp.callback_query(F.data == "back_to_main_menu")
+async def back_to_main_menu(callback: CallbackQuery, state: FSMContext):
+    cart = (await state.get_data()).get("cart", {})
+    await show_main_menu(callback.message, len(cart))
+    await callback.answer()
+
+
+# Переход в корзину
 @dp.callback_query(F.data == "go_to_cart")
-async def go_to_cart(callback_query: CallbackQuery, state: FSMContext):
+async def go_to_cart(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     cart = data.get("cart", {})
 
     if not cart:
-        await callback_query.answer("Корзина пуста.", show_alert=True)
+        await callback.answer("Корзина пуста.", show_alert=True)
         return
 
     kb = InlineKeyboardBuilder()
     text_lines = ["🛒 *Ваша корзина:*"]
     total = 0
-    print("test")
-    for product_id, quantity in cart.items():
-        item = catalog.get(product_id)
+
+    for product_key, quantity in cart.items():
+        category_id, product_id = product_key.split("_")
+        item = catalog.get(category_id, {}).get("items", {}).get(product_id)
         if not item:
             continue
+
         price = item['price'] * quantity
         total += price
         text_lines.append(f"{item['title']} x{quantity} — {price}⭐")
 
         kb.row(
-            InlineKeyboardButton(text="➖", callback_data=f"decrease_{product_id}"),
-            InlineKeyboardButton(text="➕", callback_data=f"increase_{product_id}"),
-            InlineKeyboardButton(text="❌", callback_data=f"remove_{product_id}")
-
+            InlineKeyboardButton(text="➖", callback_data=f"decrease_{product_key}"),
+            InlineKeyboardButton(text="➕", callback_data=f"increase_{product_key}"),
+            InlineKeyboardButton(text="❌", callback_data=f"remove_{product_key}")
         )
 
     text_lines.append(f"\n💰 *Итоговая сумма:* {total}⭐")
     kb.row(InlineKeyboardButton(text="✅ Подтвердить оплату", callback_data="confirm_payment"))
-    kb.row(InlineKeyboardButton(text="🔙 Выйти из корзины", callback_data="exit_cart"))
+    kb.row(InlineKeyboardButton(text="🔙 В главное меню", callback_data="back_to_main_menu"))
 
-    await callback_query.message.edit_text("\n".join(text_lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
+    await callback.message.edit_text("\n".join(text_lines), reply_markup=kb.as_markup(), parse_mode="Markdown")
+    await callback.answer()
 
 
-
-
-#Добавление и удаление товара
+# Управление количеством товаров в корзине
 @dp.callback_query(F.data.startswith("increase_"))
 async def increase_quantity(callback: CallbackQuery, state: FSMContext):
-    product_id = callback.data.split("_", 1)[1]
+    product_key = callback.data.split("_", 1)[1]
     data = await state.get_data()
     cart = data.get("cart", {})
-    cart[product_id] = cart.get(product_id, 0) + 1
+    cart[product_key] = cart.get(product_key, 0) + 1
     await state.update_data(cart=cart)
     await go_to_cart(callback, state)
+
 
 @dp.callback_query(F.data.startswith("decrease_"))
 async def decrease_quantity(callback: CallbackQuery, state: FSMContext):
-    product_id = callback.data.split("_", 1)[1]
+    product_key = callback.data.split("_", 1)[1]
     data = await state.get_data()
     cart = data.get("cart", {})
-    if product_id in cart:
-        if cart[product_id] > 1:
-            cart[product_id] -= 1
+    if product_key in cart:
+        if cart[product_key] > 1:
+            cart[product_key] -= 1
         else:
-            del cart[product_id]
+            del cart[product_key]
     await state.update_data(cart=cart)
     await go_to_cart(callback, state)
+
 
 @dp.callback_query(F.data.startswith("remove_"))
 async def remove_item(callback: CallbackQuery, state: FSMContext):
-    product_id = callback.data.split("_", 1)[1]
+    product_key = callback.data.split("_", 1)[1]
     data = await state.get_data()
     cart = data.get("cart", {})
-    cart.pop(product_id, None)
+    cart.pop(product_key, None)
     await state.update_data(cart=cart)
     await go_to_cart(callback, state)
 
 
-
-#Подтверждение оплаты
+# Оформление заказа
 @dp.callback_query(F.data == "confirm_payment")
-async def confirm_payment(callback_query: CallbackQuery, state: FSMContext):
+async def confirm_payment(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     cart = data.get("cart", {})
 
     if not cart:
-        await callback_query.answer("🛒 Корзина пуста.", show_alert=True)
+        await callback.answer("🛒 Корзина пуста.", show_alert=True)
         return
 
     total = 0
     summary_lines = []
-    for product_id, quantity in cart.items():
-        item = catalog.get(product_id)
+    for product_key, quantity in cart.items():
+        category_id, product_id = product_key.split("_")
+        item = catalog.get(category_id, {}).get("items", {}).get(product_id)
         if not item:
             continue
 
@@ -206,66 +320,45 @@ async def confirm_payment(callback_query: CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="❌ Отменить", callback_data="cancel_payment")]
     ])
 
-    await callback_query.message.answer(summary_text, reply_markup=keyboard, parse_mode="Markdown")
-    await callback_query.answer()
+    await callback.message.answer(summary_text, reply_markup=keyboard, parse_mode="Markdown")
+    await callback.answer()
 
-#Симуляция оплаты
+
+# Симуляция оплаты
 @dp.callback_query(F.data == "simulate_payment")
-async def simulate_payment(callback_query: CallbackQuery, state: FSMContext):
-    await callback_query.message.answer("📦 Введите адрес доставки:")
+async def simulate_payment(callback: CallbackQuery, state: FSMContext):
+    await callback.message.answer("📦 Введите адрес доставки:")
     await state.set_state(OrderState.waiting_for_address)
-    await callback_query.answer()
+    await callback.answer()
+
 
 @dp.message(OrderState.waiting_for_address)
 async def process_address(message: Message, state: FSMContext):
     address = message.text.strip()
     data = await state.get_data()
 
-    # (можно здесь сохранить адрес в базу, если нужно)
     await message.answer(
         f"✅ *Оплата прошла успешно!*\n"
         f"Ваш заказ будет доставлен по адресу:\n📍 {address}",
         parse_mode="Markdown",
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 Вернуться в магазин", callback_data="back_to_shop")]
+            [InlineKeyboardButton(text="🔙 В главное меню", callback_data="back_to_main_menu")]
         ])
     )
 
-    # Очистим корзину и сбросим состояние
+    # Очищаем корзину
+    await state.update_data(cart={})
     await state.clear()
+
+
 @dp.callback_query(F.data == "cancel_payment")
-async def cancel_payment(callback_query: CallbackQuery):
-    await callback_query.message.answer("❌ Оплата отменена. Вы можете вернуться к выбору товаров.")
-    await callback_query.answer()
+async def cancel_payment(callback: CallbackQuery):
+    await callback.message.answer("❌ Оплата отменена. Вы можете вернуться к выбору товаров.")
+    await callback.answer()
 
-
-
-# @dp.pre_checkout_query()
-# async def pre_checkout_query(pre_checkout_q: PreCheckoutQuery):
-#     await bot.answer_pre_checkout_query(pre_checkout_q.id, ok=True)
-#
-# @dp.message(F.successful_payment)
-# async def successful_payment(message: Message, state: FSMContext):
-#     await message.answer("✅ Оплата прошла успешно! Спасибо за покупку.")
-#     await state.clear()  # Очищаем корзину
-
-
-#Обратно в магазин
-@dp.callback_query(F.data == "back_to_shop")
-async def back_to_shop(callback_query: CallbackQuery):
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text=f"{item['title']} — {item['price']}⭐",
-                callback_data=f"product_{product_id}"
-            )
-        ]
-        for product_id, item in catalog.items()
-    ])
-    await callback_query.message.answer("🛍️ Выберите товар из каталога:", reply_markup=kb)
-    await callback_query.answer()
 
 async def main():
+    await init_db()
     app = web.Application()
     app.router.add_post('/webhook/bitrix', bitrix24.bitrix_webhook_handler)
 
@@ -276,6 +369,7 @@ async def main():
 
     print("Webhook сервер запущен на http://localhost:8080")
     await dp.start_polling(bot)
+
 
 if __name__ == '__main__':
     asyncio.run(main())
