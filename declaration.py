@@ -1,60 +1,60 @@
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import A4
-from reportlab.pdfbase import pdfmetrics
-from reportlab.pdfbase.ttfonts import TTFont
-from datetime import date
+from fpdf import FPDF
+from datetime import datetime
 
-# Регистрация кириллического шрифта
-pdfmetrics.registerFont(TTFont('DejaVu', 'DejaVuSans.ttf'))
+class USNDeclarationForm(FPDF):
+    def __init__(self, bg_path):
+        super().__init__()
+        self.bg_path = bg_path
 
-def generate_official_usn_declaration(
-    taxpayer_name,
-    inn,
-    kpp,
-    year,
-    income,
-    tax_rate,
-    output_file="usn_official_declaration.pdf"
-):
-    tax = round(income * (tax_rate / 100), 2)
-    c = canvas.Canvas(output_file, pagesize=A4)
-    width, height = A4
-    line_height = 18
+    def header(self):
+        self.image(self.bg_path, x=0, y=0, w=210, h=297)  # A4 формат
 
-    c.setFont("DejaVu", 12)
+    def fill_fields(self, inn, year, income, tax, fio="Иванов Иван Иванович"):
+        self.set_font("Arial", size=10)
+        self.set_text_color(0)
 
-    y = height - 40
-    def draw_line(label, value=""):
-        nonlocal y
-        c.drawString(40, y, f"{label}: {value}")
-        y -= line_height
+        # ИНН — верхняя строка
+        self.set_xy(36, 13.5)
+        self.cell(40, 5, inn)
 
-    # Шапка
-    c.setFont("DejaVu", 14)
-    c.drawCentredString(width / 2, y, "Налоговая декларация по налогу, уплачиваемому в связи с применением УСН")
-    y -= 2 * line_height
+        # Отчётный год — в правом верхнем углу
+        self.set_xy(170, 34)
+        self.cell(20, 5, year)
 
-    c.setFont("DejaVu", 12)
-    draw_line("ИНН", inn)
-    draw_line("КПП", kpp)
-    draw_line("Налоговый период (год)", year)
-    draw_line("ФИО / Наименование", taxpayer_name)
-    draw_line("Система налогообложения", "УСН (объект: доходы)")
-    draw_line("Общий доход за год", f"{income} руб.")
-    draw_line("Ставка налога", f"{tax_rate}%")
-    draw_line("Налог к уплате", f"{tax} руб.")
-    draw_line("Дата формирования", date.today().strftime("%d.%m.%Y"))
-    draw_line("Подпись", "________________________")
+        # Объект налогообложения: "1" — Доходы
+        self.set_xy(29.5, 102.5)
+        self.cell(5, 5, "1")
 
-    c.save()
-    print(f"✅ Официальная декларация УСН сгенерирована: {output_file}")
+        # Доход — нижний блок, левый столбец (примерное размещение)
+        self.set_xy(40, 150)
+        self.cell(50, 5, f"{income:,.2f}".replace(",", " "))
 
-# Пример использования
-generate_official_usn_declaration(
-    taxpayer_name="ИП Петров Пётр Петрович",
-    inn="123456789012",
-    kpp="123456789",
-    year=2024,
-    income=2000000,
-    tax_rate=6.0
-)
+        # Налог
+        self.set_xy(40, 160)
+        self.cell(50, 5, f"{tax:,.2f}".replace(",", " "))
+
+        # Подпись (ФИО)
+        self.set_xy(28, 246.5)
+        self.cell(80, 5, fio)
+
+        # Дата
+        self.set_xy(130, 246.5)
+        self.cell(30, 5, datetime.today().strftime("%d.%m.%Y"))
+
+def generate_declaration_pdf():
+    inn = input("Введите ИНН ИП: ").strip()
+    year = input("Введите год декларации (например, 2024): ").strip()
+    income = float(input("Введите сумму дохода за год: ").strip())
+    fio = input("Введите ФИО (например: Иванов Иван Иванович): ").strip()
+    tax = round(income * 0.06, 2)
+
+    template_path = "929d3d7a-ba8d-4158-aff7-9cb6e5165876.png"
+    pdf = USNDeclarationForm(template_path)
+    pdf.add_page()
+    pdf.fill_fields(inn, year, income, tax, fio)
+
+    filename = f"usn_declaration_{inn}_{year}.pdf"
+    pdf.output(filename)
+    print(f"\n✅ Декларация сохранена как: {filename}")
+
+generate_declaration_pdf()
