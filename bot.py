@@ -1,9 +1,5 @@
 from aiogram import Bot, Dispatcher, F
-from aiogram.client.session import aiohttp
-from aiogram.exceptions import TelegramAPIError
-from aiogram.types import Message, InlineKeyboardButton, KeyboardButton, InlineKeyboardMarkup, PreCheckoutQuery, \
-    LabeledPrice, ReplyKeyboardMarkup, CallbackQuery
-from aiogram.enums import ParseMode, ContentType
+from aiogram.types import Message, InlineKeyboardButton, KeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, CallbackQuery
 from aiogram.utils.keyboard import InlineKeyboardBuilder
 from loguru import logger
 import asyncio
@@ -13,8 +9,6 @@ from sqlalchemy import select
 from aiohttp import web
 import bitrix24
 from aiogram.fsm.context import FSMContext
-from aiogram.types import LabeledPrice
-import uuid
 import os
 from dotenv import load_dotenv
 from catalog import catalog
@@ -23,8 +17,6 @@ from state import OrderState, RegisterState
 load_dotenv()
 bot = Bot(token=os.getenv("TOKEN"))
 dp = Dispatcher()
-
-
 
 
 # Главное меню с кнопкой корзины
@@ -332,23 +324,65 @@ async def simulate_payment(callback: CallbackQuery, state: FSMContext):
     await callback.answer()
 
 
+# Модифицируем обработчик оформления заказа
 @dp.message(OrderState.waiting_for_address)
 async def process_address(message: Message, state: FSMContext):
     address = message.text.strip()
     data = await state.get_data()
+    cart = data.get("cart", {})
 
-    await message.answer(
-        f"✅ *Оплата прошла успешно!*\n"
-        f"Ваш заказ будет доставлен по адресу:\n📍 {address}",
-        parse_mode="Markdown",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="🔙 В главное меню", callback_data="back_to_main_menu")]
-        ])
-    )
+    if not cart:
+        await message.answer("Корзина пуста!")
+        await state.clear()
+        return
+
+    # Получаем данные пользователя из БД
+    async with async_session() as session:
+        stmt = select(User).where(User.tg_id == message.from_user.id)
+        result = await session.execute(stmt)
+        user = result.scalar_one_or_none()
+
+        if not user:
+            await message.answer("Ошибка: пользователь не найден")
+            await state.clear()
+            return
+
+        user_data = {
+            "full_name": user.full_name,
+            "phone": user.phone,
+            "tg_id": message.from_user.id,
+
+        }
+
+    # Создаем сделку в Bitrix24
+    deal_result = await bitrix24.create_bitrix_deal(user_data, cart, address)
+
+    if deal_result:
+        print(deal_result.get('deal_id'))
+        await message.answer(
+            f"✅ *Оплата прошла успешно!*\n"
+            f"Номер вашего заказа: {deal_result.get('deal_id')}\n"
+            f"Адрес доставки: {address}\n\n"
+            f"С вами свяжется наш менеджер для уточнения деталей.",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 В главное меню", callback_data="back_to_main_menu")]
+            ])
+        )
+
+        # Логируем успешное создание сделки
+        logger.info(f"Создана сделка в Bitrix24: ID {deal_result.get} для пользователя {user.tg_id}")
+    else:
+        await message.answer(
+            "⚠️ Заказ оформлен, но возникла ошибка при создании сделки. "
+            "Наш менеджер свяжется с вами для уточнения деталей."
+        )
+        logger.error(f"Ошибка при создании сделки для пользователя {user.tg_id}")
 
     # Очищаем корзину
     await state.update_data(cart={})
     await state.clear()
+
 
 
 @dp.callback_query(F.data == "cancel_payment")
