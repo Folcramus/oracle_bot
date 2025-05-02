@@ -1,19 +1,21 @@
-from aiogram import Bot, Dispatcher, F
+# Импорт библиотек и зависимостей
+from aiogram import Bot, Dispatcher, F  # Основные классы для работы с Telegram API
 from aiogram.types import Message, InlineKeyboardButton, KeyboardButton, InlineKeyboardMarkup, ReplyKeyboardMarkup, CallbackQuery
-from aiogram.utils.keyboard import InlineKeyboardBuilder
-from loguru import logger
-import asyncio
-from database import init_db, async_session
-from models import User
-from sqlalchemy import select
-from aiohttp import web
-import bitrix24
-from aiogram.fsm.context import FSMContext
+from aiogram.utils.keyboard import InlineKeyboardBuilder  # Удобный билдер клавиатур
+from loguru import logger  # Логирование
+import asyncio  # Асинхронность
+from database import init_db, async_session  # Инициализация базы данных и сессия
+from models import User  # Модель пользователя
+from sqlalchemy import select  # Запросы SQLAlchemy
+from aiohttp import web  # Веб-сервер для обработки вебхуков
+import bitrix24  # Интеграция с Bitrix24 (API)
+from aiogram.fsm.context import FSMContext  # Контекст состояний FSM (машина состояний)
 import os
-from dotenv import load_dotenv
-from catalog import catalog
-from state import OrderState, RegisterState
+from dotenv import load_dotenv  # Загрузка переменных окружения
+from catalog import catalog  # Каталог товаров
+from state import OrderState, RegisterState  # Определенные состояния FSM
 
+# Загрузка .env переменных и инициализация бота и диспетчера
 load_dotenv()
 bot = Bot(token=os.getenv("TOKEN"))
 dp = Dispatcher()
@@ -274,7 +276,7 @@ async def decrease_quantity(callback: CallbackQuery, state: FSMContext):
     await state.update_data(cart=cart)
     await go_to_cart(callback, state)
 
-
+#Удаление из корзины
 @dp.callback_query(F.data.startswith("remove_"))
 async def remove_item(callback: CallbackQuery, state: FSMContext):
     product_key = callback.data.split("_", 1)[1]
