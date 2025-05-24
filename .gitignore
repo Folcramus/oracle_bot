@@ -1,2 +1,5 @@
+.gitignore
 .env
 users.db
+.idea
+__pycache__
