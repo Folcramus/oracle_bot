@@ -280,8 +280,24 @@ async def create_bitrix_deal(user_data: dict, cart_items: dict, address: str):
             "TAX_RATE": 0,
         })
 
+    async with aiohttp.ClientSession() as session:
+        # Шаг 1: Поиск контакта по tg_id
+        contact_search_url = f"{BITRIX_WEBHOOK}/crm.contact.list.json"
+        search_payload = {
+            "filter": {"UF_CRM_1746084153598": str(user_data["tg_id"])},
+            "select": ["ID"]
+        }
+        async with session.post(contact_search_url, json=search_payload) as resp:
+            data = await resp.json()
+            contact_list = data.get("result", [])
+            if not contact_list:
+                logger.error(f"❌ Контакт с tg_id {user_data['tg_id']} не найден в Bitrix")
+                return
+            contact_id = contact_list[0]["ID"]
+
     deal_data = {
         "TITLE": f"Заказ от {user_data.get('full_name')}",
+        "CONTACT_ID": contact_id,
         "UF_CRM_1746090729665": address,
         "TYPE_ID": "SALE",
         "STAGE_ID": "NEW",
